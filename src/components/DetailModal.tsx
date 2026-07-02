@@ -14,6 +14,51 @@ interface DetailModalProps {
 export function DetailModal({ isOpen, onClose, title, headers, rows }: DetailModalProps) {
   if (!isOpen) return null;
 
+  const [selectedImage, setSelectedImage] = React.useState<string | null>(null);
+
+  const detectAndGetImageUrl = (value: any, header: string): string | null => {
+    if (value === null || value === undefined) return null;
+    let str = String(value).trim();
+    if (!str) return null;
+
+    // 1. Check if the value is a formula like =IMAGE("url")
+    const imageFormulaMatch = str.match(/=IMAGE\s*\(\s*["']([^"']+)["']/i);
+    if (imageFormulaMatch) {
+      str = imageFormulaMatch[1];
+    }
+
+    // 2. Check if the string is a direct URL or Google Drive link
+    if (str.startsWith('http://') || str.startsWith('https://')) {
+      const driveFileMatch = str.match(/drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)/);
+      const driveOpenMatch = str.match(/drive\.google\.com\/open\?id=([a-zA-Z0-9_-]+)/);
+      const docUcMatch = str.match(/docs\.google\.com\/uc\?(?:export=download&)?id=([a-zA-Z0-9_-]+)/);
+      
+      const fileId = (driveFileMatch && driveFileMatch[1]) || 
+                     (driveOpenMatch && driveOpenMatch[1]) || 
+                     (docUcMatch && docUcMatch[1]);
+                     
+      if (fileId) {
+        return `https://lh3.googleusercontent.com/d/${fileId}`;
+      }
+      
+      const h = header.toLowerCase();
+      const isImageHeader = h.includes('foto') || h.includes('gambar') || h.includes('bukti') || h.includes('image') || h.includes('cctv') || h.includes('dokumen') || h.includes('link');
+      
+      if (isImageHeader || /\.(jpg|jpeg|png|gif|webp|svg)/i.test(str)) {
+        return str;
+      }
+    }
+
+    // 3. Check if the column header refers to a photo/image and value looks like a Google Drive ID
+    const h = header.toLowerCase();
+    const isImageHeader = h.includes('foto') || h.includes('gambar') || h.includes('bukti') || h.includes('image') || h.includes('cctv') || h.includes('dokumen');
+    if (isImageHeader && /^[a-zA-Z0-9_-]{25,50}$/.test(str)) {
+      return `https://lh3.googleusercontent.com/d/${str}`;
+    }
+
+    return null;
+  };
+
   const handleExportExcel = () => {
     // Generate formatted rows based on display values in UI
     const formattedRows = rows.map(row => 
@@ -197,8 +242,37 @@ export function DetailModal({ isOpen, onClose, title, headers, rows }: DetailMod
                     rows.map((row, i) => (
                       <tr key={i} className="border-b border-gray-100 hover:bg-blue-50/30 transition-colors">
                         {row.map((cell, j) => (
-                          <td key={j} className="px-4 py-3 text-[11px] font-medium text-gray-700 whitespace-nowrap border-r border-gray-100 last:border-0">
-                            {formatCellValue(cell, headers[j])}
+                          <td key={j} className="px-4 py-2 text-[11px] font-medium text-gray-700 whitespace-nowrap border-r border-gray-100 last:border-0">
+                            {(() => {
+                              const imgUrl = detectAndGetImageUrl(cell, headers[j]);
+                              if (imgUrl) {
+                                return (
+                                  <div className="flex items-center gap-2">
+                                    <div className="relative group cursor-zoom-in">
+                                      <img 
+                                        src={imgUrl} 
+                                        alt={headers[j]} 
+                                        className="h-10 w-14 object-cover rounded border border-gray-200 shadow-sm transition-all group-hover:brightness-90 group-hover:scale-105"
+                                        referrerPolicy="no-referrer"
+                                        onClick={() => setSelectedImage(imgUrl)}
+                                        onError={(e) => {
+                                          (e.target as HTMLElement).style.display = 'none';
+                                        }}
+                                      />
+                                    </div>
+                                    <a 
+                                      href={imgUrl} 
+                                      target="_blank" 
+                                      rel="noopener noreferrer" 
+                                      className="text-cyan-600 hover:underline hover:text-cyan-700 text-[10px] font-black tracking-wider uppercase flex items-center gap-0.5"
+                                    >
+                                      BUKA ↗
+                                    </a>
+                                  </div>
+                                );
+                              }
+                              return formatCellValue(cell, headers[j]);
+                            })()}
                           </td>
                         ))}
                       </tr>
@@ -225,6 +299,55 @@ export function DetailModal({ isOpen, onClose, title, headers, rows }: DetailMod
             </p>
           </div>
         </motion.div>
+
+        {/* Lightbox for full screen image view */}
+        <AnimatePresence>
+          {selectedImage && (
+            <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4">
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setSelectedImage(null)}
+                className="absolute inset-0 bg-black/90 backdrop-blur-md"
+              />
+              <motion.div
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.9 }}
+                className="relative max-w-5xl max-h-[85vh] z-10 flex flex-col items-center justify-center"
+              >
+                <img
+                  src={selectedImage}
+                  alt="Bukti Foto CCTV Full"
+                  className="max-w-full max-h-[80vh] object-contain rounded-lg shadow-2xl border border-white/10"
+                  referrerPolicy="no-referrer"
+                />
+                <div className="absolute top-4 right-4 flex gap-2">
+                  <a
+                    href={selectedImage}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="bg-white/10 hover:bg-white/20 text-white p-2 rounded-full transition-colors flex items-center justify-center"
+                    title="Buka di tab baru"
+                  >
+                    <Download size={18} />
+                  </a>
+                  <button
+                    onClick={() => setSelectedImage(null)}
+                    className="bg-red-600 hover:bg-red-700 text-white p-2 rounded-full transition-colors flex items-center justify-center"
+                    title="Tutup"
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
+                <div className="mt-3 text-white/70 text-[10px] font-bold tracking-widest uppercase bg-black/50 px-4 py-1.5 rounded-full">
+                  KLIK DI MANA SAJA UNTUK MENUTUP
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
       </div>
     </AnimatePresence>
   );
