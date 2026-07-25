@@ -16,7 +16,8 @@ export class GoogleSheetsService {
       poskoRows: any[][],
       ratingRows: any[][],
       cctvDataRows?: any[][],
-      reguRows?: any[][]
+      reguRows?: any[][],
+      anomaliRows?: any[][]
     },
     startDate?: string,
     endDate?: string,
@@ -414,7 +415,7 @@ export class GoogleSheetsService {
     const allRegusInUlp = new Map<string, Set<string>>(); // ULP -> Set of Regus
 
     const now = Date.now();
-    let woRows: any[][], poRows: any[][], petugasRows: any[][], ulpRows: any[][], poskoRows: any[][], ratingRows: any[][], cctvDataRows: any[][] = [], reguRows: any[][] = [];
+    let woRows: any[][], poRows: any[][], petugasRows: any[][], ulpRows: any[][], poskoRows: any[][], ratingRows: any[][], cctvDataRows: any[][] = [], reguRows: any[][] = [], anomaliRows: any[][] = [];
     const woOverSlaRptList: any[][] = [];
 
     // 1. DATA ACQUISITION (Cached or Fresh)
@@ -433,8 +434,9 @@ export class GoogleSheetsService {
       ratingRows = cached.ratingRows;
       cctvDataRows = cached.cctvDataRows || [];
       reguRows = cached.reguRows || [];
+      anomaliRows = cached.anomaliRows || [];
     } else {
-      [woRows, poRows, petugasRows, ulpRows, poskoRows, ratingRows, cctvDataRows, reguRows] = await Promise.all([
+      [woRows, poRows, petugasRows, ulpRows, poskoRows, ratingRows, cctvDataRows, reguRows, anomaliRows] = await Promise.all([
         this.fetchSheetDataRaw("WO"),
         this.fetchSheetDataRaw("PO"),
         this.petugasCache ? Promise.resolve(this.petugasCache) : this.fetchSheetDataRaw("PETUGAS").then(data => { this.petugasCache = data; return data; }),
@@ -443,11 +445,12 @@ export class GoogleSheetsService {
         this.fetchSheetDataRaw("RATING"),
         this.fetchSheetDataRaw("CCTV_DATA").catch(() => []),
         this.fetchSheetDataRaw("REGU").catch(() => []),
+        this.fetchSheetDataRaw("ANOMALI").catch(() => []),
       ]);
 
       if (woRows.length > 0 || poRows.length > 0) {
         this.rawDataCache = {
-          data: { woRows, poRows, petugasRows, ulpRows, poskoRows, ratingRows, cctvDataRows, reguRows },
+          data: { woRows, poRows, petugasRows, ulpRows, poskoRows, ratingRows, cctvDataRows, reguRows, anomaliRows },
           startDate,
           endDate,
           timestamp: now
@@ -1311,7 +1314,79 @@ export class GoogleSheetsService {
     const poRowsCountVal = filteredPoRows.length;
     const poLastDateVal = this.findLatestDateDynamicFromFiltered(filteredPoRows, poDateIdx);
 
+    // Process Anomali Sheet if available, or synthesize anomali list
+    const finalAnomaliList: any[][] = [];
+    if (anomaliRows && anomaliRows.length > 1) {
+      const { headerRowIdx: anomaliHeaderIdx, colIndices: anomaliCols } = this.findHeaderAndCols(anomaliRows, [
+        "no tugas", "tgl lapor", "nama petugas", "ulp", "jenis", "deskripsi"
+      ]);
+      const aDataStart = anomaliHeaderIdx !== -1 ? anomaliHeaderIdx + 1 : 1;
+      anomaliRows.slice(aDataStart).forEach(row => {
+        if (!row || row.length === 0) return;
+        const rowUlp = String(row[3] || (anomaliCols[3] !== -1 ? row[anomaliCols[3]] : "") || "").trim();
+        const standardizedRowUlp = getCanonicalUlpName(standardizeUlpName(rowUlp));
+        if (targetUlpFilter && standardizedRowUlp !== targetUlpFilter) return;
+
+        const rowDateStr = String(row[1] || (anomaliCols[1] !== -1 ? row[anomaliCols[1]] : "") || "").trim();
+        const rowDate = this.parseSheetDate(rowDateStr);
+        if (rowDate && !isWithinRange(rowDate)) return;
+
+        finalAnomaliList.push(row);
+      });
+    }
+
+    // If Sheet ANOMALI has no matching data, synthesize from WO, PO, Rating
+    if (finalAnomaliList.length === 0) {
+      // WO Anomalies (Without CCTV & Over SLA)
+      uniqueWoMap.forEach(wo => {
+        if (!wo.isWithinUlp) return;
+        if (targetUlpFilter && getCanonicalUlpName(standardizeUlpName(wo.ulp)) !== targetUlpFilter) return;
+
+        if (!wo.isCctv) {
+          finalAnomaliList.push([wo.id, wo.dateRaw || "-", wo.name || "-", wo.ulp || "-", "CCTV", "WO Tanpa CCTV", wo.rpt >= 0 ? wo.rpt : "-", wo.rct >= 0 ? wo.rct : "-"]);
+        }
+        if (wo.rpt >= 30 || wo.rct >= 180) {
+          finalAnomaliList.push([wo.id, wo.dateRaw || "-", wo.name || "-", wo.ulp || "-", "Laporan Pekerjaan Selesai", `WO Over SLA (RPT: ${wo.rpt}m, RCT: ${wo.rct}m)`, wo.rpt >= 0 ? wo.rpt : "-", wo.rct >= 0 ? wo.rct : "-"]);
+        }
+      });
+
+      // PO Anomalies (Without CCTV)
+      filteredPoRows.forEach(row => {
+        const taskId = String(row[poIdIdx] || row[0] || "-").trim();
+        const officer = String(row[poNameIdx] || "Tidak Terisi").trim();
+        const ulp = String(row[poUlpIdx] || "Tidak Terisi").trim();
+        const cctvVal = String(row[poCctvIdx] || "").toUpperCase();
+        const isCctv = cctvVal.includes("CCTV");
+        const tgl = String(row[poDateIdx] || row[1] || "-").trim();
+
+        if (targetUlpFilter && getCanonicalUlpName(standardizeUlpName(ulp)) !== targetUlpFilter) return;
+
+        if (!isCctv) {
+          finalAnomaliList.push([taskId, tgl, officer, ulp, "CCTV", "PO Tanpa CCTV", "-", "-"]);
+        }
+      });
+
+      // Low Rating Anomalies
+      rating12List.forEach(row => {
+        const ulp = String(row[3] || "Tidak Terisi").trim();
+        if (targetUlpFilter && getCanonicalUlpName(standardizeUlpName(ulp)) !== targetUlpFilter) return;
+
+        finalAnomaliList.push([
+          String(row[0] || row[1] || "-"),
+          String(row[1] || "-"),
+          String(row[2] || "Tidak Terisi"),
+          ulp,
+          "Laporan Pekerjaan Selesai",
+          "Rating Pelayanan Rendah (1-2 Stars)",
+          "-",
+          "-"
+        ]);
+      });
+    }
+
     return {
+      anomaliList: finalAnomaliList,
+      totalAnomali: finalAnomaliList.length,
       summary: {
         totalBaca: totalWoCount,
         totalValid: totalWoCctvCount,

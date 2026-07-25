@@ -32,6 +32,8 @@ export interface DashboardData {
   };
   allUlps: string[];
   allPoskos: string[];
+  anomaliList?: any[][];
+  totalAnomali?: number;
   overSla: OverSLAData;
   rating: RatingData;
   rawWoRows: any[][];
@@ -131,4 +133,9 @@ export interface ULPPerformance {
   totalPoPakaiCctv: number;
   persenPo: string;
   persenPenggunaanCctv: string;
+}
+
+export interface AnomaliData extends Partial<DashboardData> {
+  anomaliList?: any[][];
+  totalAnomali?: number;
 }

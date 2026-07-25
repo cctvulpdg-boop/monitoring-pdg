@@ -10,6 +10,7 @@ import { ULPPerformanceTable } from './components/ULPPerformanceTable.tsx';
 import { DetailModal } from './components/DetailModal.tsx';
 import { OverSLAPage } from './components/OverSLAPage.tsx';
 import { RatingPage } from './components/RatingPage.tsx';
+import { AnomaliPage } from './components/AnomaliPage.tsx';
 import { GoogleSheetsService } from './services/googleSheetsService.ts';
 import { DashboardData } from './types';
 import { motion, AnimatePresence } from 'motion/react';
@@ -22,7 +23,7 @@ export default function App() {
   const [selectedUlp, setSelectedUlp] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
-  const [activeTab, setActiveTab] = useState<'CCTV' | 'OVER_SLA' | 'RATING'>('CCTV');
+  const [activeTab, setActiveTab] = useState<'CCTV' | 'OVER_SLA' | 'RATING' | 'ANOMALI'>('CCTV');
   
   // Clear filter when changing tabs since the filter source (ULP vs Posko) changes
   useEffect(() => {
@@ -116,8 +117,17 @@ export default function App() {
       totalPoCctv: filteredUlpPerf.reduce((acc, curr) => acc + (curr.totalPoPakaiCctv || 0), 0),
     } : data.summary;
 
+    const filteredAnomaliList = selectedUlp && data.anomaliList
+      ? data.anomaliList.filter(row => {
+          const u = cleanUlp(row[3]);
+          return u === targetUlp || u.includes(targetUlp) || targetUlp.includes(u);
+        })
+      : data.anomaliList;
+
     return {
       ...data,
+      anomaliList: filteredAnomaliList,
+      totalAnomali: filteredAnomaliList ? filteredAnomaliList.length : data.totalAnomali,
       ulpPerformance: filteredUlpPerf,
       officerPerformance: filteredOfficerPerf,
       summary: calculatedSummary,
@@ -549,8 +559,18 @@ export default function App() {
                 data={filteredData?.overSla || data.overSla} 
                 onDetailClick={handleOverSLADetailClick}
               />
-            ) : (
+            ) : activeTab === 'RATING' ? (
               <RatingPage data={filteredData || data} />
+            ) : (
+              <AnomaliPage 
+                data={filteredData || data} 
+                onDetailClick={(headers, rows, title) => {
+                  setModalHeaders(headers);
+                  setModalRows(rows);
+                  setModalTitle(title);
+                  setModalOpen(true);
+                }}
+              />
             )}
           </motion.div>
         </AnimatePresence>
