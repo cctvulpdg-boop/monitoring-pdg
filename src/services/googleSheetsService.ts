@@ -811,6 +811,14 @@ export class GoogleSheetsService {
       if (woNameIdx !== -1 && woNameIdx < rowToProcess.length) {
         rowToProcess[woNameIdx] = properName;
       }
+      if (woUlpIdx !== -1) {
+        while (rowToProcess.length <= woUlpIdx) rowToProcess.push("");
+        rowToProcess[woUlpIdx] = standardizedDisplayUlp;
+      }
+      if (isCctv && woCctvIdx !== -1) {
+        while (rowToProcess.length <= woCctvIdx) rowToProcess.push("");
+        rowToProcess[woCctvIdx] = "CCTV";
+      }
       dateTimeIndices.forEach(idx => {
         if (idx < rowToProcess.length) {
           const val = String(rowToProcess[idx] || "").trim();
@@ -829,18 +837,13 @@ export class GoogleSheetsService {
       }
 
       // Add to Over SLA RPT list (include duplicates for the table specifically)
-      const standardizedRowUlp = getCanonicalUlpName(standardizeUlpName(ulpName));
-      const isUp3 = allUlps.includes(standardizedRowUlp);
+      const isUp3 = allUlps.includes(standardizedDisplayUlp);
 
       if (isUp3) {
-        const raw = ulpWoRawStats.get(standardizedRowUlp) || { total: 0, cctv: 0 };
-        ulpWoRawStats.set(standardizedRowUlp, { total: raw.total + 1, cctv: raw.cctv + (isCctv ? 1 : 0) });
+        const raw = ulpWoRawStats.get(standardizedDisplayUlp) || { total: 0, cctv: 0 };
+        ulpWoRawStats.set(standardizedDisplayUlp, { total: raw.total + 1, cctv: raw.cctv + (isCctv ? 1 : 0) });
       }
 
-      if (isWithinUlp) {
-        rawWoRowsFull.push([...rowToProcess]);
-      }
-      
       const tglLaporVal = rowToProcess[woTglLaporIdx] || rowToProcess[woDateIdx] || rowDateRaw;
 
       if (isWithinUlp && isUp3 && isSelesai) {
@@ -864,31 +867,31 @@ export class GoogleSheetsService {
       if (existing) {
         if (rpt > existing.rpt) {
           existing.rpt = rpt;
-          if (woRptIdx !== -1) existing.rawRow[woRptIdx] = rpt;
+          if (woRptIdx !== -1 && woRptIdx < existing.rawRow.length) existing.rawRow[woRptIdx] = rpt;
         }
         if (rctVal > existing.rct) {
           existing.rct = rctVal;
-          if (woRctIdx !== -1) existing.rawRow[woRctIdx] = rctVal;
+          if (woRctIdx !== -1 && woRctIdx < existing.rawRow.length) existing.rawRow[woRctIdx] = rctVal;
         }
         if (isCctv) {
           existing.isCctv = true;
-          if (woCctvIdx !== -1) existing.rawRow[woCctvIdx] = "CCTV";
+          if (woCctvIdx !== -1 && woCctvIdx < existing.rawRow.length) existing.rawRow[woCctvIdx] = "CCTV";
         }
         if (durasiWo > existing.durasiWo) {
           existing.durasiWo = durasiWo;
-          if (woDurasiWoIdx !== -1) existing.rawRow[woDurasiWoIdx] = durasiWo;
+          if (woDurasiWoIdx !== -1 && woDurasiWoIdx < existing.rawRow.length) existing.rawRow[woDurasiWoIdx] = durasiWo;
         }
         // Prefer row with rating if existing doesn't have one
         if (existing.rating === null && ratingVal !== null) {
           existing.rating = ratingVal;
           existing.ratingStr = ratingStr;
-          if (woRatingIdx !== -1) existing.rawRow[woRatingIdx] = ratingStr;
+          if (woRatingIdx !== -1 && woRatingIdx < existing.rawRow.length) existing.rawRow[woRatingIdx] = ratingStr;
         }
         // Prefer PLN Mobile source if existing is something else
         if (!existing.isPlnMobile && isPlnMobile) {
           existing.isPlnMobile = true;
           existing.source = sourceRaw;
-          if (woSourceIdx !== -1) existing.rawRow[woSourceIdx] = sourceRaw;
+          if (woSourceIdx !== -1 && woSourceIdx < existing.rawRow.length) existing.rawRow[woSourceIdx] = sourceRaw;
         }
       } else {
         uniqueWoMap.set(reportId, {
@@ -897,7 +900,7 @@ export class GoogleSheetsService {
           rct: rctVal,
           isCctv,
           name: properName,
-          ulp: ulpName,
+          ulp: standardizedDisplayUlp,
           posko: poskoName,
           date: rowDate,
           dateRaw: rowDateRaw,
@@ -910,8 +913,14 @@ export class GoogleSheetsService {
           isPlnMobile,
           isWithinUlp,
           apktStatus,
-          rawRow: [...rowToProcess]
+          rawRow: rowToProcess
         });
+      }
+    });
+
+    uniqueWoMap.forEach((wo) => {
+      if (wo.isWithinUlp) {
+        rawWoRowsFull.push(wo.rawRow);
       }
     });
 
@@ -1115,6 +1124,10 @@ export class GoogleSheetsService {
         if (poNameIdx !== -1 && poNameIdx < poRowProcessed.length) {
           poRowProcessed[poNameIdx] = properName;
         }
+        if (poUlpIdx !== -1) {
+          while (poRowProcessed.length <= poUlpIdx) poRowProcessed.push("");
+          poRowProcessed[poUlpIdx] = standardizedDisplayUlp;
+        }
         filteredPoRows.push(poRowProcessed);
         globalPoTasks.set(taskId, (globalPoTasks.get(taskId) || false) || isCctv);
       }
@@ -1242,11 +1255,11 @@ export class GoogleSheetsService {
     // 6. Sort by Total PO Pakai CCTV descending
     mappedCctvUsage.sort((a, b) => b.totalPoPakaiCctv - a.totalPoPakaiCctv);
 
-    // 7. Aggregate ULP Performance using RAW count per ULP
+    // 7. Aggregate ULP Performance using Unique WO and PO counts per ULP
     // allUlps already defined above
     const ulpPerformance = allUlps.map(ulp => {
-      const woStats = ulpWoRawStats.get(ulp) || { total: 0, cctv: 0 };
-      const poStats = ulpPoRawStats.get(ulp) || { total: 0, cctv: 0 };
+      const woStats = ulpWoStatsMap.get(ulp) || { total: 0, cctv: 0 };
+      const poStats = ulpPoStatsMap.get(ulp) || { total: 0, cctv: 0 };
       
       return {
         ulp,

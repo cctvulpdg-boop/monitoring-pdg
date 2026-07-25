@@ -97,17 +97,30 @@ export default function App() {
     const rating12 = filteredRating12List.length;
     const noRating = filteredNoRatingList.length;
 
+    const filteredUlpPerf = (selectedUlp 
+      ? data.ulpPerformance.filter(u => cleanUlp(u.ulp) === targetUlp)
+      : data.ulpPerformance
+    ).sort((a, b) => getAvg(b) - getAvg(a));
+
+    const filteredOfficerPerf = (selectedUlp
+      ? data.officerPerformance.filter(o => cleanUlp(o.ulp) === targetUlp)
+      : data.officerPerformance
+    ).sort((a, b) => getAvg(b) - getAvg(a));
+
+    const calculatedSummary = selectedUlp ? {
+      ...data.summary,
+      totalBaca: filteredUlpPerf.reduce((acc, curr) => acc + (curr.jumlahWoTotal || 0), 0),
+      totalValid: filteredUlpPerf.reduce((acc, curr) => acc + (curr.totalWoPakaiCctv || 0), 0),
+      tidakValid: filteredUlpPerf.reduce((acc, curr) => acc + ((curr.jumlahWoTotal || 0) - (curr.totalWoPakaiCctv || 0)), 0),
+      totalPo: filteredUlpPerf.reduce((acc, curr) => acc + (curr.jumlahPoTotal || 0), 0),
+      totalPoCctv: filteredUlpPerf.reduce((acc, curr) => acc + (curr.totalPoPakaiCctv || 0), 0),
+    } : data.summary;
+
     return {
       ...data,
-      ulpPerformance: (selectedUlp 
-        ? data.ulpPerformance.filter(u => u.ulp === selectedUlp)
-        : data.ulpPerformance
-      ).sort((a, b) => getAvg(b) - getAvg(a)),
-      officerPerformance: (selectedUlp
-        ? data.officerPerformance.filter(o => o.ulp === selectedUlp)
-        : data.officerPerformance
-      ).sort((a, b) => getAvg(b) - getAvg(a)),
-      summary: data.summary,
+      ulpPerformance: filteredUlpPerf,
+      officerPerformance: filteredOfficerPerf,
+      summary: calculatedSummary,
       rating: {
         ...data.rating,
         totalWoPlnMobile,
@@ -196,13 +209,13 @@ export default function App() {
     }
 
     // 2. Filter by ULP or Officer
-    if (identifier === "UP3" || identifier === "ALL") {
-      setModalTitle(`DETAIL DATA ${type}${isCctv ? ' (CCTV)' : ''} - UP3 PADANG`);
-    } else if (isUlp) {
-      const targetUlp = cleanUlp(identifier);
+    const activeUlpFilter = (identifier === "UP3" || identifier === "ALL") ? selectedUlp : (isUlp ? identifier : "");
+
+    if (activeUlpFilter && activeUlpFilter !== "ALL") {
+      const targetUlp = cleanUlp(activeUlpFilter);
       filteredRows = filteredRows.filter(row => {
         let rowUlp = "";
-        if (indices.ulp !== -1 && row[indices.ulp]) {
+        if (indices.ulp !== -1 && indices.ulp < row.length && row[indices.ulp]) {
           rowUlp = cleanUlp(row[indices.ulp]);
         } else {
           // Fallback to officer mapping
@@ -211,7 +224,9 @@ export default function App() {
         }
         return rowUlp === targetUlp;
       });
-      setModalTitle(`DETAIL DATA ${type}${isCctv ? ' (CCTV)' : ''} - ULP: ${identifier}`);
+      setModalTitle(`DETAIL DATA ${type}${isCctv ? ' (CCTV)' : ''} - ULP: ${activeUlpFilter}`);
+    } else if (identifier === "UP3" || identifier === "ALL") {
+      setModalTitle(`DETAIL DATA ${type}${isCctv ? ' (CCTV)' : ''} - UP3 PADANG`);
     } else {
       const targetName = cleanName(identifier);
       filteredRows = filteredRows.filter(row => {
@@ -221,41 +236,43 @@ export default function App() {
       setModalTitle(`DETAIL DATA ${type}${isCctv ? ' (CCTV)' : ''} - PETUGAS: ${identifier}`);
     }
 
-    // 3. De-duplicate filteredRows by unique ID (No Laporan for WO, No Tugas/ID for PO)
-    let idIdx = -1;
-    if (type === 'WO') {
-      idIdx = (indices.apktNo !== undefined && indices.apktNo !== null && indices.apktNo !== -1) ? indices.apktNo : -1;
-      if (idIdx === -1) {
-        idIdx = headers.findIndex(h => {
-          const s = String(h || "").toLowerCase();
-          return s.includes("laporan") || s.includes("apkt") || s.includes("id");
-        });
-      }
-    } else {
-      idIdx = (indices as any).id !== undefined && (indices as any).id !== null && (indices as any).id !== -1 ? (indices as any).id : -1;
-      if (idIdx === -1) {
-        idIdx = headers.findIndex(h => {
-          const s = String(h || "").toLowerCase();
-          return s.includes("tugas") || s.includes("id");
-        });
-      }
-      if (idIdx === -1) {
-        // Fallback: search for standard poCols[3] position (usually at column index 4)
-        idIdx = 4;
-      }
-    }
-
-    if (idIdx !== undefined && idIdx !== null && idIdx !== -1) {
-      const uniqueMap = new Map<string, any[]>();
-      filteredRows.forEach(row => {
-        if (row.length > idIdx) {
-          const id = String(row[idIdx] || "").trim().toUpperCase();
-          if (id && !uniqueMap.has(id)) {
-            uniqueMap.set(id, row);
-          }
+    // 3. De-duplicate filteredRows by unique ID EXCEPT for Petugas (since officer performance stats count raw activity records)
+    if (isUlp || identifier === "UP3" || identifier === "ALL") {
+      let idIdx = -1;
+      if (type === 'WO') {
+        idIdx = (indices.apktNo !== undefined && indices.apktNo !== null && indices.apktNo !== -1) ? indices.apktNo : -1;
+        if (idIdx === -1) {
+          idIdx = headers.findIndex(h => {
+            const s = String(h || "").toLowerCase();
+            return s.includes("laporan") || s.includes("apkt") || s.includes("id");
+          });
         }
-      });
-      filteredRows = Array.from(uniqueMap.values());
+      } else {
+        idIdx = (indices as any).id !== undefined && (indices as any).id !== null && (indices as any).id !== -1 ? (indices as any).id : -1;
+        if (idIdx === -1) {
+          idIdx = headers.findIndex(h => {
+            const s = String(h || "").toLowerCase();
+            return s.includes("tugas") || s.includes("id");
+          });
+        }
+        if (idIdx === -1) {
+          // Fallback: search for standard poCols[3] position (usually at column index 4)
+          idIdx = 4;
+        }
+      }
+
+      if (idIdx !== undefined && idIdx !== null && idIdx !== -1) {
+        const uniqueMap = new Map<string, any[]>();
+        filteredRows.forEach(row => {
+          if (row.length > idIdx) {
+            const id = String(row[idIdx] || "").trim().toUpperCase();
+            if (id && !uniqueMap.has(id)) {
+              uniqueMap.set(id, row);
+            }
+          }
+        });
+        filteredRows = Array.from(uniqueMap.values());
+      }
     }
 
     setModalHeaders(headers);
