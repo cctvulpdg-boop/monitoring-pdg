@@ -908,45 +908,45 @@ export const AnomaliPage: React.FC<AnomaliPageProps> = ({ data }) => {
   return (
     <div id="anomali_page_outer" className="flex flex-col gap-6 p-6 bg-slate-50/50 rounded-2xl min-h-full">
       
-      {/* Row 1 Grid: All cards aligned in a single row */}
+      {/* Row 1 Grid: All cards auto-fitted in a clean, balanced grid layout */}
       <div 
         id="anomali_row_deck" 
-        className="flex overflow-x-auto pb-4 gap-4 snap-x lg:grid lg:grid-cols-8 lg:overflow-x-visible lg:pb-0"
+        className="grid grid-cols-2 sm:grid-cols-4 lg:grid-flow-col lg:auto-cols-fr gap-3 sm:gap-3.5"
       >
         
         {/* Card 1: UP3 PADANG / UTAMA */}
         <div 
           onClick={() => openModalForUnit("UP3 PADANG")}
           id="card_up3_main" 
-          className="snap-center shrink-0 w-[240px] lg:w-auto bg-gradient-to-br from-blue-600 to-[#1b3d5d] text-white p-5 rounded-2xl shadow-md shadow-blue-200 border border-blue-400 hover:shadow-lg hover:scale-[1.03] active:scale-95 transition-all cursor-pointer flex flex-col justify-between min-h-[160px]"
+          className="bg-gradient-to-br from-blue-600 to-[#1b3d5d] text-white p-3.5 sm:p-4 rounded-2xl shadow-md shadow-blue-200/50 border border-blue-400 hover:shadow-lg hover:scale-[1.02] active:scale-95 transition-all cursor-pointer flex flex-col justify-between min-h-[135px]"
         >
-          <div className="flex items-start justify-between">
-            <div className="p-2.5 bg-white/10 rounded-xl backdrop-blur-md">
-              <Building2 size={20} className="text-white" />
+          <div className="flex items-start justify-between gap-1">
+            <div className="p-2 bg-white/10 rounded-xl backdrop-blur-md shrink-0">
+              <Building2 size={18} className="text-white" />
             </div>
             {totalUp3Anomali > 0 ? (
-              <span className="bg-white/20 text-white text-[8px] font-black tracking-widest uppercase px-2 py-0.5 rounded-full flex items-center gap-1">
+              <span className="bg-white/20 text-white text-[8px] font-black tracking-widest uppercase px-2 py-0.5 rounded-full flex items-center gap-1 shrink-0">
                 <AlertOctagon size={8} className="animate-ping" />
                 UTAMA
               </span>
             ) : (
-              <span className="bg-emerald-500/30 text-emerald-100 text-[8px] font-black tracking-widest uppercase px-2 py-0.5 rounded-full">
+              <span className="bg-emerald-500/30 text-emerald-100 text-[8px] font-black tracking-widest uppercase px-2 py-0.5 rounded-full shrink-0">
                 NIHIL
               </span>
             )}
           </div>
           
-          <div className="mt-4">
-            <p className="text-[9px] font-extrabold tracking-widest text-blue-100 uppercase">
+          <div className="mt-3">
+            <p className="text-[10px] font-extrabold tracking-wider text-blue-100 uppercase truncate">
               UP3 PADANG
             </p>
             <div className="flex items-baseline gap-1 mt-0.5">
-              <h3 className="text-3xl font-black tracking-tight leading-none hover:underline">
+              <h3 className="text-2xl sm:text-3xl font-black tracking-tight leading-none hover:underline">
                 {totalUp3Anomali.toLocaleString()}
               </h3>
-              <span className="text-[10px] text-blue-100 font-bold">kasus</span>
+              <span className="text-[9px] text-blue-100 font-bold">kasus</span>
             </div>
-            <p className="text-[8px] text-blue-100/85 font-medium mt-1 line-clamp-1">
+            <p className="text-[8px] text-blue-100/85 font-medium mt-1 truncate">
               Akumulasi temuan anomali seluruh ULP
             </p>
           </div>
@@ -960,32 +960,32 @@ export const AnomaliPage: React.FC<AnomaliPageProps> = ({ data }) => {
               key={ulp.id}
               id={`card_ulp_${ulp.id}`}
               onClick={() => openModalForUnit(ulp.name)}
-              className="snap-center shrink-0 w-[180px] lg:w-auto bg-white hover:bg-blue-50/10 p-5 rounded-2xl border border-gray-100 hover:border-blue-200 shadow-sm hover:shadow-md hover:-translate-y-1 active:scale-95 transition-all cursor-pointer flex flex-col justify-between min-h-[160px]"
+              className="bg-white hover:bg-blue-50/10 p-3.5 sm:p-4 rounded-2xl border border-gray-100 hover:border-blue-200 shadow-sm hover:shadow-md hover:-translate-y-0.5 active:scale-95 transition-all cursor-pointer flex flex-col justify-between min-h-[135px]"
             >
-              <div className="flex items-start justify-between">
-                <div className="p-2 bg-slate-50 text-slate-400 rounded-lg">
-                  <MapPin size={16} />
+              <div className="flex items-start justify-between gap-1">
+                <div className="p-2 bg-slate-50 text-slate-400 rounded-lg shrink-0">
+                  <MapPin size={15} />
                 </div>
-                <span className={`text-[8px] font-black tracking-widest px-2 py-0.5 rounded-full ${
+                <span className={`text-[8px] font-black tracking-widest px-2 py-0.5 rounded-full shrink-0 ${
                   count > 0 ? "bg-blue-50 text-blue-600 border border-blue-100" : "bg-emerald-50 text-emerald-600 border border-emerald-100"
                 }`}>
                   {count > 0 ? "TEMUAN" : "AMAN"}
                 </span>
               </div>
               
-              <div className="mt-4">
-                <p className="text-[9px] font-extrabold tracking-widest text-gray-400 uppercase truncate">
+              <div className="mt-3">
+                <p className="text-[10px] font-extrabold tracking-wider text-gray-400 uppercase truncate">
                   {ulp.name}
                 </p>
                 <div className="flex items-baseline gap-1 mt-0.5">
-                  <h3 className={`text-2xl font-black tracking-tight leading-none tabular-nums ${
+                  <h3 className={`text-xl sm:text-2xl font-black tracking-tight leading-none tabular-nums ${
                     count > 0 ? "text-blue-600 hover:underline" : "text-gray-800"
                   }`}>
                     {count.toLocaleString()}
                   </h3>
                   <span className="text-[9px] text-gray-400 font-bold">Kasus</span>
                 </div>
-                <p className="text-[8px] text-gray-400 font-medium mt-1">
+                <p className="text-[8px] text-gray-400 font-medium mt-1 truncate">
                   ULP {ulp.name}
                 </p>
               </div>
