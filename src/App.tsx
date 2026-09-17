@@ -24,6 +24,10 @@ export default function App() {
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [activeTab, setActiveTab] = useState<'CCTV' | 'OVER_SLA' | 'RATING' | 'ANOMALI'>('CCTV');
+  const [modalOpen, setModalOpen] = useState(false);
+  const [modalTitle, setModalTitle] = useState("");
+  const [modalHeaders, setModalHeaders] = useState<string[]>([]);
+  const [modalRows, setModalRows] = useState<any[][]>([]);
   const latestRequestIdRef = useRef(0);
   
   // Clear filter when changing tabs since the filter source (ULP vs Posko) changes
@@ -184,12 +188,6 @@ export default function App() {
     }
     return 0;
   }, [filteredData, activeTab]);
-
-  // Modal State
-  const [modalOpen, setModalOpen] = useState(false);
-  const [modalTitle, setModalTitle] = useState("");
-  const [modalHeaders, setModalHeaders] = useState<string[]>([]);
-  const [modalRows, setModalRows] = useState<any[][]>([]);
 
   // Filter logic options
   const filterList = React.useMemo(() => {
