@@ -1,7 +1,6 @@
 import React from 'react';
 import { OfficerPerformance } from '../types';
-import { Users, ChevronRight, TrendingUp, Download } from 'lucide-react';
-import * as XLSX from 'xlsx';
+import { Users, ChevronRight, TrendingUp } from 'lucide-react';
 
 interface PerformanceTableProps {
   data: OfficerPerformance[];
@@ -9,67 +8,6 @@ interface PerformanceTableProps {
 }
 
 export const PerformanceTable: React.FC<PerformanceTableProps> = ({ data, onDetailClick }) => {
-  const handleExportExcel = () => {
-    if (!data || data.length === 0) return;
-
-    const headers = [
-      'NAMA PETUGAS',
-      'ULP',
-      'WO TOTAL',
-      'WO CCTV',
-      '% WO',
-      'PO TOTAL',
-      'PO CCTV',
-      '% PO',
-      'TOTAL %'
-    ];
-
-    const rows = data.map((item) => {
-      const woVal = parseFloat(item.persenWo) || 0;
-      const poVal = parseFloat(item.persenPo) || 0;
-      const hasWo = item.jumlahWoTotal > 0;
-      const hasPo = item.jumlahPoTotal > 0;
-
-      let totalAvg = '0.00';
-      if (hasWo && hasPo) {
-        totalAvg = ((woVal + poVal) / 2).toFixed(2);
-      } else if (hasWo) {
-        totalAvg = woVal.toFixed(2);
-      } else if (hasPo) {
-        totalAvg = poVal.toFixed(2);
-      }
-
-      return [
-        item.name,
-        item.ulp,
-        item.jumlahWoTotal,
-        item.totalWoPakaiCctv,
-        item.persenWo,
-        item.jumlahPoTotal,
-        item.totalPoPakaiCctv,
-        item.persenPo,
-        `${totalAvg}%`
-      ];
-    });
-
-    const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
-    ws['!cols'] = [
-      { wch: 30 },
-      { wch: 16 },
-      { wch: 12 },
-      { wch: 12 },
-      { wch: 10 },
-      { wch: 12 },
-      { wch: 12 },
-      { wch: 10 },
-      { wch: 12 }
-    ];
-
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Kinerja Petugas');
-    XLSX.writeFile(wb, `Kinerja_Petugas_${new Date().toISOString().slice(0, 10)}.xlsx`);
-  };
-
   return (
     <div className="dashboard-card flex flex-col">
       <div className="bg-indigo-500 p-4 flex items-center justify-between shrink-0">
@@ -79,20 +17,9 @@ export const PerformanceTable: React.FC<PerformanceTableProps> = ({ data, onDeta
           </div>
           <h3 className="text-[11px] font-black text-white tracking-widest uppercase">KINERJA PETUGAS</h3>
         </div>
-        <div className="flex items-center gap-3">
-          <button
-            id="btn-download-excel-kinerja-petugas"
-            onClick={handleExportExcel}
-            className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white text-[10px] font-bold px-2.5 py-1 rounded shadow-sm transition-all cursor-pointer"
-            title="Download Excel Kinerja Petugas"
-          >
-            <Download size={12} />
-            <span>Download Excel</span>
-          </button>
-          <div className="flex items-center gap-1.5 bg-indigo-600/60 px-2 py-1 rounded">
-            <span className="text-[9px] font-bold text-brand-accent uppercase">PERINGKAT</span>
-            <TrendingUp size={12} className="text-brand-accent" />
-          </div>
+        <div className="flex items-center gap-2">
+          <span className="text-[9px] font-bold text-brand-accent uppercase">PERINGKAT</span>
+          <TrendingUp size={12} className="text-brand-accent" />
         </div>
       </div>
 

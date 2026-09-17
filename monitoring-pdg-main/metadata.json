@@ -1,0 +1,6 @@
+{
+  "name": "MONITORING YANDAL PLN ES PADANG",
+  "description": "Monitoring Yandal Dashboard for PLN ES PADANG with Google Sheets integration.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
