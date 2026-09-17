@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, FileText, Download } from 'lucide-react';
+import { X, FileText, Download, Search, ChevronLeft, ChevronRight } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
 interface DetailModalProps {
@@ -14,7 +14,15 @@ interface DetailModalProps {
 export function DetailModal({ isOpen, onClose, title, headers, rows }: DetailModalProps) {
   if (!isOpen) return null;
 
-  const [selectedImage, setSelectedImage] = React.useState<string | null>(null);
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
+
+  // Reset page when search or rows change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, rows]);
 
   const detectAndGetImageUrl = (value: any, header: string): string | null => {
     if (value === null || value === undefined) return null;
@@ -59,20 +67,6 @@ export function DetailModal({ isOpen, onClose, title, headers, rows }: DetailMod
     return null;
   };
 
-  const handleExportExcel = () => {
-    // Generate formatted rows based on display values in UI
-    const formattedRows = rows.map(row => 
-      row.map((cell, j) => formatCellValue(cell, headers[j]))
-    );
-
-    const ws = XLSX.utils.aoa_to_sheet([headers, ...formattedRows]);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Data Detail");
-
-    // Save file as .xlsx
-    XLSX.writeFile(wb, `${title.replace(/\s+/g, '_')}_${new Date().getTime()}.xlsx`);
-  };
-
   const isDateColumn = (header: string) => {
     const h = header.toUpperCase();
     return h.includes('TGL') || h.includes('TANGGAL') || h.includes('DATE') || h.includes('TIME') || h.includes('CHECK IN') || h.includes('JAM');
@@ -85,15 +79,20 @@ export function DetailModal({ isOpen, onClose, title, headers, rows }: DetailMod
 
     if (isDateColumn(header)) {
       // 1. Handle serial dates (numeric)
-      // Standardize comma to dot for parsing
       const normalizedStr = str.replace(',', '.');
-      // Look for a numeric value that represents a serial date
-      // Era 2020-2030 is roughly 43831 to 51136. 0.xxx are time-only serials.
       if (/^\d{5}(\.\d+)?$/.test(normalizedStr) || (/^0\.\d+$/.test(normalizedStr)) || (/^\d+\.\d+$/.test(normalizedStr) && parseFloat(normalizedStr) > 30000)) {
         const serial = parseFloat(normalizedStr);
-        const date = new Date(Math.round((serial - 25569) * 86400 * 1000));
+        const totalSeconds = Math.round((serial - 25569) * 86400);
+        const dUtc = new Date(totalSeconds * 1000);
+        const date = new Date(
+          dUtc.getUTCFullYear(),
+          dUtc.getUTCMonth(),
+          dUtc.getUTCDate(),
+          dUtc.getUTCHours(),
+          dUtc.getUTCMinutes(),
+          dUtc.getUTCSeconds()
+        );
         
-        // If it's a pure time serial (< 1), only show time
         const showDate = serial >= 1;
         
         return date.toLocaleString('id-ID', {
@@ -109,12 +108,11 @@ export function DetailModal({ isOpen, onClose, title, headers, rows }: DetailMod
 
       const parseManual = (s: string) => {
         const months: Record<string, number> = {
-          'januari': 0, 'februari': 1, 'maret': 2, 'april': 3, 'juni': 5,
+          'januari': 0, 'februari': 1, 'maret': 2, 'april': 3, 'mei': 4, 'juni': 5,
           'juli': 6, 'agustus': 7, 'september': 8, 'oktober': 9, 'november': 10, 'desember': 11,
-          'jan': 0, 'feb': 1, 'mar': 2, 'apr': 3, 'mei': 4, 'jun': 5, 'jul': 6, 'agu': 7, 'sep': 8, 'okt': 9, 'nov': 10, 'des': 11
+          'jan': 0, 'feb': 1, 'mar': 2, 'apr': 3, 'jun': 5, 'jul': 6, 'agu': 7, 'sep': 8, 'okt': 9, 'nov': 10, 'des': 11
         };
         
-        // Separate date and time by searching for first space or T (ISO)
         let dateStr = s;
         let timeStr = '';
         const spaceIdx = s.indexOf(' ');
@@ -138,7 +136,6 @@ export function DetailModal({ isOpen, onClose, title, headers, rows }: DetailMod
           }
 
           if (isNaN(month) || month < 0 || month > 11) {
-            // Try YYYY-MM-DD
             day = parseInt(dateParts[2]);
             monthStr = dateParts[1];
             month = months[monthStr];
@@ -148,8 +145,6 @@ export function DetailModal({ isOpen, onClose, title, headers, rows }: DetailMod
 
           if (!isNaN(day) && !isNaN(month) && !isNaN(year) && year > 1900) {
             const date = new Date(year, month, day);
-            
-            // Handle time part
             if (timeStr) {
                const timeMatch = timeStr.match(/(\d{1,2})[:.](\d{1,2})([:.](\d{1,2}))?/);
                if (timeMatch) {
@@ -179,9 +174,45 @@ export function DetailModal({ isOpen, onClose, title, headers, rows }: DetailMod
     return str;
   };
 
+  // Filter rows based on search query
+  const filteredRows = useMemo(() => {
+    if (!searchQuery.trim()) return rows;
+    const query = searchQuery.toLowerCase().trim();
+    return rows.filter(row => {
+      return row.some(cell => {
+        if (cell === null || cell === undefined) return false;
+        return String(cell).toLowerCase().includes(query);
+      });
+    });
+  }, [rows, searchQuery]);
+
+  // Paginated rows for rendering
+  const totalPages = Math.max(1, Math.ceil(filteredRows.length / pageSize));
+  const currentPageClamped = Math.min(Math.max(1, currentPage), totalPages);
+  
+  const displayedRows = useMemo(() => {
+    if (pageSize >= filteredRows.length) return filteredRows;
+    const start = (currentPageClamped - 1) * pageSize;
+    return filteredRows.slice(start, start + pageSize);
+  }, [filteredRows, currentPageClamped, pageSize]);
+
+  const handleExportExcel = () => {
+    // Generate formatted rows based on display values in UI from filteredRows
+    const formattedRows = filteredRows.map(row => 
+      row.map((cell, j) => formatCellValue(cell, headers[j]))
+    );
+
+    const ws = XLSX.utils.aoa_to_sheet([headers, ...formattedRows]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Data Detail");
+
+    // Save file as .xlsx
+    XLSX.writeFile(wb, `${title.replace(/\s+/g, '_')}_${new Date().getTime()}.xlsx`);
+  };
+
   return (
     <AnimatePresence>
-      <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 sm:p-6 md:p-10">
+      <div className="fixed inset-0 z-[9999] flex items-center justify-center p-2 sm:p-4 md:p-8">
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
@@ -194,33 +225,99 @@ export function DetailModal({ isOpen, onClose, title, headers, rows }: DetailMod
           initial={{ opacity: 0, scale: 0.95, y: 20 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.95, y: 20 }}
-          className="relative w-full max-w-7xl h-full max-h-[90vh] bg-white rounded-xl shadow-2xl flex flex-col overflow-hidden"
+          className="relative w-full max-w-7xl h-full max-h-[92vh] bg-white rounded-xl shadow-2xl flex flex-col overflow-hidden"
         >
           {/* Header */}
-          <div className="bg-cyan-600 text-white p-4 flex items-center justify-between border-b border-white/10">
+          <div className="bg-cyan-600 text-white px-4 py-3 sm:px-6 sm:py-4 flex items-center justify-between border-b border-white/10 shrink-0">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-brand-accent rounded-lg flex items-center justify-center">
+              <div className="w-10 h-10 bg-brand-accent rounded-lg flex items-center justify-center shrink-0">
                 <FileText size={20} className="text-[#0a1128]" />
               </div>
-              <div>
-                <h3 className="text-sm font-black tracking-widest uppercase">{title}</h3>
-                <p className="text-[10px] font-bold text-brand-accent/60 tracking-widest uppercase">DETAIL DATA DARI GOOGLE SHEETS</p>
+              <div className="min-w-0">
+                <h3 className="text-xs sm:text-sm font-black tracking-widest uppercase truncate max-w-[400px] sm:max-w-xl">{title}</h3>
+                <p className="text-[10px] font-bold text-brand-accent/80 tracking-widest uppercase">DETAIL DATA RESMI GOOGLE SHEETS</p>
               </div>
             </div>
             <div className="flex items-center gap-2">
               <button
+                id="btn-export-excel-detail-modal"
                 onClick={handleExportExcel}
-                className="flex items-center gap-2 bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-lg text-[10px] font-black tracking-widest uppercase transition-all"
+                className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg text-[10px] font-black tracking-widest uppercase transition-all shadow-sm active:scale-95"
               >
-                <Download size={14} />
-                EXPORT EXCEL
+                <Download size={13} />
+                <span>EXPORT EXCEL</span>
               </button>
               <button
+                id="btn-close-detail-modal"
                 onClick={onClose}
-                className="w-10 h-10 flex items-center justify-center hover:bg-red-500 transition-colors rounded-lg"
+                className="w-9 h-9 flex items-center justify-center hover:bg-red-500 transition-colors rounded-lg"
               >
-                <X size={20} />
+                <X size={18} />
               </button>
+            </div>
+          </div>
+
+          {/* Search and Pagination Toolbar */}
+          <div className="bg-gray-100 px-4 py-2.5 border-b border-gray-200 flex flex-wrap items-center justify-between gap-3 shrink-0">
+            <div className="relative flex-1 min-w-[200px] max-w-md">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input
+                id="input-search-detail-modal"
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Cari kata kunci (nama, no laporan, tanggal, dsb)..."
+                className="w-full bg-white border border-gray-300 rounded-lg pl-9 pr-8 py-1.5 text-xs text-gray-800 placeholder-gray-400 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 shadow-inner font-medium"
+              />
+              {searchQuery && (
+                <button 
+                  onClick={() => setSearchQuery("")}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                >
+                  <X size={14} />
+                </button>
+              )}
+            </div>
+
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-1.5 text-xs text-gray-600 font-bold">
+                <span className="hidden sm:inline text-[11px] text-gray-500">Baris:</span>
+                <select 
+                  value={pageSize}
+                  onChange={(e) => setPageSize(Number(e.target.value))}
+                  className="bg-white border border-gray-300 rounded px-2 py-1 text-xs text-gray-700 font-bold focus:outline-none focus:border-cyan-500"
+                >
+                  <option value={25}>25</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                  <option value={250}>250</option>
+                  <option value={1000}>1000</option>
+                </select>
+              </div>
+
+              {totalPages > 1 && (
+                <div className="flex items-center gap-1 text-xs font-bold text-gray-600">
+                  <button
+                    disabled={currentPageClamped <= 1}
+                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                    className="p-1 rounded border border-gray-300 bg-white hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                    title="Halaman Sebelumnya"
+                  >
+                    <ChevronLeft size={14} />
+                  </button>
+                  <span className="px-2 text-[11px] font-black text-brand-primary">
+                    {currentPageClamped} / {totalPages}
+                  </span>
+                  <button
+                    disabled={currentPageClamped >= totalPages}
+                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                    className="p-1 rounded border border-gray-300 bg-white hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                    title="Halaman Berikutnya"
+                  >
+                    <ChevronRight size={14} />
+                  </button>
+                </div>
+              )}
             </div>
           </div>
 
@@ -230,57 +327,66 @@ export function DetailModal({ isOpen, onClose, title, headers, rows }: DetailMod
               <table className="w-full text-left border-collapse min-w-max">
                 <thead className="sticky top-0 z-10 bg-gray-100 shadow-sm">
                   <tr className="border-b border-gray-200">
+                    <th className="px-3 py-2.5 text-[10px] font-black text-gray-500 uppercase tracking-widest text-center border-r border-gray-200">
+                      NO
+                    </th>
                     {headers.map((header, i) => (
-                      <th key={i} className="px-4 py-3 text-[10px] font-black text-gray-500 uppercase tracking-widest whitespace-nowrap border-r border-gray-200 last:border-0">
+                      <th key={i} className="px-4 py-2.5 text-[10px] font-black text-gray-500 uppercase tracking-widest whitespace-nowrap border-r border-gray-200 last:border-0">
                         {header}
                       </th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.length > 0 ? (
-                    rows.map((row, i) => (
-                      <tr key={i} className="border-b border-gray-100 hover:bg-blue-50/30 transition-colors">
-                        {row.map((cell, j) => (
-                          <td key={j} className="px-4 py-2 text-[11px] font-medium text-gray-700 whitespace-nowrap border-r border-gray-100 last:border-0">
-                            {(() => {
-                              const imgUrl = detectAndGetImageUrl(cell, headers[j]);
-                              if (imgUrl) {
-                                return (
-                                  <div className="flex items-center gap-2">
-                                    <div className="relative group cursor-zoom-in">
-                                      <img 
-                                        src={imgUrl} 
-                                        alt={headers[j]} 
-                                        className="h-10 w-14 object-cover rounded border border-gray-200 shadow-sm transition-all group-hover:brightness-90 group-hover:scale-105"
-                                        referrerPolicy="no-referrer"
-                                        onClick={() => setSelectedImage(imgUrl)}
-                                        onError={(e) => {
-                                          (e.target as HTMLElement).style.display = 'none';
-                                        }}
-                                      />
-                                    </div>
-                                    <a 
-                                      href={imgUrl} 
-                                      target="_blank" 
-                                      rel="noopener noreferrer" 
-                                      className="text-cyan-600 hover:underline hover:text-cyan-700 text-[10px] font-black tracking-wider uppercase flex items-center gap-0.5"
-                                    >
-                                      BUKA ↗
-                                    </a>
-                                  </div>
-                                );
-                              }
-                              return formatCellValue(cell, headers[j]);
-                            })()}
+                  {displayedRows.length > 0 ? (
+                    displayedRows.map((row, i) => {
+                      const rowNumber = (currentPageClamped - 1) * pageSize + i + 1;
+                      return (
+                        <tr key={i} className="border-b border-gray-100 hover:bg-blue-50/40 transition-colors">
+                          <td className="px-3 py-2 text-[10px] font-mono font-bold text-gray-400 text-center border-r border-gray-100">
+                            {rowNumber}
                           </td>
-                        ))}
-                      </tr>
-                    ))
+                          {row.map((cell, j) => (
+                            <td key={j} className="px-4 py-2 text-[11px] font-medium text-gray-700 whitespace-nowrap border-r border-gray-100 last:border-0">
+                              {(() => {
+                                const imgUrl = detectAndGetImageUrl(cell, headers[j]);
+                                if (imgUrl) {
+                                  return (
+                                    <div className="flex items-center gap-2">
+                                      <div className="relative group cursor-zoom-in">
+                                        <img 
+                                          src={imgUrl} 
+                                          alt={headers[j]} 
+                                          className="h-9 w-14 object-cover rounded border border-gray-200 shadow-sm transition-all group-hover:brightness-90 group-hover:scale-105"
+                                          referrerPolicy="no-referrer"
+                                          onClick={() => setSelectedImage(imgUrl)}
+                                          onError={(e) => {
+                                            (e.target as HTMLElement).style.display = 'none';
+                                          }}
+                                        />
+                                      </div>
+                                      <a 
+                                        href={imgUrl} 
+                                        target="_blank" 
+                                        rel="noopener noreferrer" 
+                                        className="text-cyan-600 hover:underline hover:text-cyan-700 text-[10px] font-black tracking-wider uppercase flex items-center gap-0.5"
+                                      >
+                                        BUKA ↗
+                                      </a>
+                                    </div>
+                                  );
+                                }
+                                return formatCellValue(cell, headers[j]);
+                              })()}
+                            </td>
+                          ))}
+                        </tr>
+                      );
+                    })
                   ) : (
                     <tr>
-                      <td colSpan={headers.length} className="px-4 py-10 text-center text-gray-400 font-bold uppercase tracking-widest text-xs">
-                        Tidak ada data yang ditemukan
+                      <td colSpan={headers.length + 1} className="px-4 py-12 text-center text-gray-400 font-bold uppercase tracking-widest text-xs">
+                        {searchQuery ? `Tidak ada data yang cocok dengan "${searchQuery}"` : "Tidak ada data yang ditemukan"}
                       </td>
                     </tr>
                   )}
@@ -290,12 +396,19 @@ export function DetailModal({ isOpen, onClose, title, headers, rows }: DetailMod
           </div>
 
           {/* Footer */}
-          <div className="bg-gray-100 p-3 border-t border-gray-200 flex justify-between items-center">
-            <p className="text-[10px] font-bold text-gray-400 tracking-widest uppercase">
-              TOTAL: {rows.length} BARIS DATA
-            </p>
-            <p className="text-[10px] font-black text-gray-300 tracking-[0.3em] uppercase">
-              PLN ELECTRICITY SERVICES • UL PADANG
+          <div className="bg-gray-100 px-4 py-3 border-t border-gray-200 flex flex-wrap justify-between items-center gap-2 shrink-0">
+            <div className="flex items-center gap-3">
+              <span className="text-[11px] font-black text-gray-600 tracking-wider uppercase">
+                TOTAL: {filteredRows.length.toLocaleString('id-ID')} BARIS
+                {filteredRows.length !== rows.length && (
+                  <span className="text-gray-400 font-bold ml-1.5">
+                    (disaring dari {rows.length.toLocaleString('id-ID')})
+                  </span>
+                )}
+              </span>
+            </div>
+            <p className="text-[10px] font-black text-gray-400 tracking-[0.25em] uppercase">
+              PLN ELECTRICITY SERVICES • ES PADANG
             </p>
           </div>
         </motion.div>

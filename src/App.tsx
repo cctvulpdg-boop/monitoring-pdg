@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { Header } from './components/Header.tsx';
 import { SubHeader } from './components/SubHeader.tsx';
 import { WOUP3Card } from './components/WOUP3Card.tsx';
@@ -24,6 +24,7 @@ export default function App() {
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [activeTab, setActiveTab] = useState<'CCTV' | 'OVER_SLA' | 'RATING' | 'ANOMALI'>('CCTV');
+  const latestRequestIdRef = useRef(0);
   
   // Clear filter when changing tabs since the filter source (ULP vs Posko) changes
   useEffect(() => {
@@ -124,6 +125,21 @@ export default function App() {
         })
       : data.anomaliList;
 
+    const filteredOverSla = selectedUlp && data.overSla ? (() => {
+      const filteredWoOverSla = (data.overSla.woOverSlaRptList || []).filter(row => {
+        const u = cleanUlp(row[1]);
+        return u === targetUlp || u.includes(targetUlp);
+      });
+      const filteredUlpDist = (data.overSla.ulpDistribution || []).filter(u => cleanUlp(u.name) === targetUlp);
+      const totalUlpGangguan = filteredUlpDist.reduce((sum, u) => sum + u.value, 0);
+      return {
+        ...data.overSla,
+        totalGangguan: totalUlpGangguan > 0 ? totalUlpGangguan : data.overSla.totalGangguan,
+        woOverSlaRptList: filteredWoOverSla,
+        ulpDistribution: filteredUlpDist,
+      };
+    })() : data.overSla;
+
     return {
       ...data,
       anomaliList: filteredAnomaliList,
@@ -131,6 +147,7 @@ export default function App() {
       ulpPerformance: filteredUlpPerf,
       officerPerformance: filteredOfficerPerf,
       summary: calculatedSummary,
+      overSla: filteredOverSla,
       rating: {
         ...data.rating,
         totalWoPlnMobile,
@@ -314,6 +331,18 @@ export default function App() {
     let filteredRows = rawRows;
     let title = "DETAIL DATA OVER SLA";
 
+    // Filter by selectedUlp if active and not ALL
+    if (selectedUlp && selectedUlp !== "ALL") {
+      const targetUlp = cleanUlp(selectedUlp);
+      filteredRows = filteredRows.filter(row => {
+        let rowUlp = "";
+        if (indices.ulp !== -1 && row[indices.ulp]) {
+          rowUlp = cleanUlp(row[indices.ulp]);
+        }
+        return rowUlp === targetUlp || cleanName(row[indices.name]).includes(targetUlp);
+      });
+    }
+
     const getRptValue = (row: any[]) => {
       if (indices.rpt !== -1 && row[indices.rpt]) {
         return parseFloat(String(row[indices.rpt]).replace(",", "."));
@@ -333,29 +362,29 @@ export default function App() {
         title = "DETAIL SELURUH DATA GANGGUAN";
         break;
       case 'RPT_OVER_30':
-        filteredRows = rawRows.filter(row => getRptValue(row) >= 30);
+        filteredRows = filteredRows.filter(row => getRptValue(row) >= 30);
         title = "DETAIL WO RPT > 30 MENIT";
         break;
       case 'RPT_OVER_45':
-        filteredRows = rawRows.filter(row => getRptValue(row) >= 45);
+        filteredRows = filteredRows.filter(row => getRptValue(row) >= 45);
         title = "DETAIL WO RPT > 45 MENIT";
         break;
       case 'HIGHEST_RPT':
-        const maxRpt = Math.max(...rawRows.map(row => getRptValue(row)));
-        filteredRows = rawRows.filter(row => getRptValue(row) === maxRpt);
+        const maxRpt = filteredRows.reduce((max, row) => Math.max(max, getRptValue(row)), -1);
+        filteredRows = filteredRows.filter(row => getRptValue(row) === maxRpt && maxRpt >= 0);
         title = "DETAIL DURASI RPT TERTINGGI";
         break;
       case 'HIGHEST_RCT':
-        const maxRct = Math.max(...rawRows.map(row => getRctValue(row)));
-        filteredRows = rawRows.filter(row => getRctValue(row) === maxRct);
+        const maxRct = filteredRows.reduce((max, row) => Math.max(max, getRctValue(row)), -1);
+        filteredRows = filteredRows.filter(row => getRctValue(row) === maxRct && maxRct >= 0);
         title = "DETAIL DURASI RCT TERTINGGI";
         break;
       case 'AVG_RPT':
-        filteredRows = rawRows.filter(row => getRptValue(row) >= 0);
+        filteredRows = filteredRows.filter(row => getRptValue(row) >= 0);
         title = "DETAIL DATA RATA-RATA RPT";
         break;
       case 'AVG_RCT':
-        filteredRows = rawRows.filter(row => getRctValue(row) >= 0);
+        filteredRows = filteredRows.filter(row => getRctValue(row) >= 0);
         title = "DETAIL DATA RATA-RATA RCT";
         break;
       case 'ULP':
@@ -380,9 +409,11 @@ export default function App() {
 
   const handleForceRefresh = async () => {
     setIsRefreshing(true);
+    const reqId = ++latestRequestIdRef.current;
     try {
       await GoogleSheetsService.triggerAppsScriptSync();
       const result = await GoogleSheetsService.fetchData(startDate, endDate, selectedUlp, true);
+      if (reqId !== latestRequestIdRef.current) return;
       const hasData = result.officerPerformance.length > 0 || result.summary.dataAktif > 0;
       if (!hasData) {
         setError("Tidak ada data yang ditemukan untuk rentang tanggal ini.");
@@ -391,23 +422,26 @@ export default function App() {
       }
       setData(result);
     } catch (err) {
+      if (reqId !== latestRequestIdRef.current) return;
       console.error("Failed to force refresh data:", err);
       setError("Gagal melakukan sinkronisasi dengan Google Sheets.");
     } finally {
-      setIsRefreshing(false);
+      if (reqId === latestRequestIdRef.current) {
+        setIsRefreshing(false);
+      }
     }
   };
 
   useEffect(() => {
     const loadData = async (showLoading = false) => {
-      // If we already have data and are just changing ULP, we don't need a full-page loader
-      // the new caching logic in GoogleSheetsService handles this instantly
+      const reqId = ++latestRequestIdRef.current;
       const needsFullLoader = !data || (showLoading && !isRefreshing);
       
       if (needsFullLoader) setIsRefreshing(true);
       
       try {
         const result = await GoogleSheetsService.fetchData(startDate, endDate, selectedUlp);
+        if (reqId !== latestRequestIdRef.current) return;
         const hasData = result.officerPerformance.length > 0 || result.summary.dataAktif > 0;
         if (!hasData) {
           setError("Tidak ada data yang ditemukan untuk rentang tanggal ini.");
@@ -416,10 +450,13 @@ export default function App() {
         }
         setData(result);
       } catch (err) {
+        if (reqId !== latestRequestIdRef.current) return;
         console.error("Failed to fetch data:", err);
         setError("Gagal menghubungkan ke Google Sheets.");
       } finally {
-        setIsRefreshing(false);
+        if (reqId === latestRequestIdRef.current) {
+          setIsRefreshing(false);
+        }
       }
     };
 
